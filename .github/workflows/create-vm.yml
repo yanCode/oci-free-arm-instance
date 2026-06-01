@@ -132,6 +132,9 @@ jobs:
           if echo "$OCI_OUTPUT" | grep -q '"lifecycle-state": "PROVISIONING"'; then
             echo "Success! 'PROVISIONING' state found in output."
             exit 0
+          elif echo "$OCI_OUTPUT" | grep -q 'Out of host capacity.'; then
+            echo "OCI returned 'Out of host capacity.' for VM.Standard.A1.Flex in ${OCI_CLI_REGION}. This is a backend capacity limit, so the workflow should keep retrying."
+            exit 1
           else
             echo "Error: Success string not found in OCI output. Failing the step."
             exit 1

@@ -157,6 +157,12 @@ If the workflow fails with OCI `401 NotAuthenticated`, the VM request is not rea
 
 The workflow runs `oci os ns get --auth api_key` before creating an instance. If that preflight fails, fix the authentication secrets first; changing VM shape, image, subnet, or availability domain will not fix a `401 NotAuthenticated` error.
 
+### Troubleshooting `Out of host capacity`
+
+If the workflow fails with `Out of host capacity.`, OCI accepted your request but has no available `VM.Standard.A1.Flex` capacity in that region at that time. This is a backend capacity limit, not a secret or syntax problem.
+
+Leave the workflow enabled and let it retry. If you want to improve the odds, you can change the region, try a different availability domain if your tenancy has more than one, or reduce the requested OCPU/RAM if your account and quota allow it.
+
 ---
 
 ## 🚨 CRITICAL: What to Do on Success

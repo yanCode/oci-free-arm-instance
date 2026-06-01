@@ -1,6 +1,9 @@
 name: Try to Create OCI VM
 # It will run every 5 minutes.
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "*/5 * * * *"
   # Allows you to manually run this workflow from the Actions tab
@@ -99,6 +102,7 @@ jobs:
           {
             echo "OCI auth preflight:"
             echo "- region: ${OCI_CLI_REGION}"
+            echo "- availability domain: ${AD_NAME}"
             echo "- user OCID prefix: ${OCI_CLI_USER:0:18}..."
             echo "- tenancy OCID prefix: ${OCI_CLI_TENANCY:0:21}..."
             echo "- fingerprint: ${OCI_CLI_FINGERPRINT}"

@@ -116,9 +116,9 @@ Go to your forked repository on GitHub.
 #### **VM Secrets**
 
 * `OCI_COMPARTMENT_ID` (Value: Your Tenancy OCID from Step 2A)
-* `IMAGE_ID` (Value: Your Image OCID from Step 2C)
+* `OCI_IMAGE_ID` (Value: Your Image OCID from Step 2C)
 * `OCI_SUBNET_ID` (Value: Your Subnet OCID from Step 2C)
-* `AD_NAME` (Value: Your Availability Domain name from Step 2C)
+* `OCI_AD_NAME` (Value: Your Availability Domain name from Step 2C)
 * `SSH_PUBLIC_KEY` (Value: The `ssh-rsa...` key from Step 2D)
 
 #### **Authentication Secrets**
@@ -144,6 +144,18 @@ You're all set! Now you just need to start the process.
 3.  You will see a message: "This workflow has a `workflow_dispatch` event." Click the **"Run workflow"** button on the right, and then **"Run workflow"** again.
 
 This will start the first run. From now on, the `schedule` will automatically run it every 10 minutes. You can check the "Actions" tab to see the logs from each run. You will also get a notification in Discord every time it tries.
+
+### Troubleshooting `NotAuthenticated`
+
+If the workflow fails with OCI `401 NotAuthenticated`, the VM request is not reaching capacity checks yet. OCI rejected the API key signature. Re-create or verify these GitHub Secrets:
+
+* `OCI_CLI_KEY_CONTENT`: Must be the complete private key downloaded for the same OCI user API key.
+* `OCI_CLI_FINGERPRINT`: Must match the fingerprint shown for that exact API key in OCI Console -> User Settings -> API Keys.
+* `OCI_CLI_USER`: Must be the user OCID, not the tenancy OCID.
+* `OCI_CLI_TENANCY`: Must be the tenancy OCID.
+* `OCI_CLI_REGION`: Must match the region containing your subnet, image, and availability domain, for example `us-phoenix-1`.
+
+The workflow runs `oci os ns get --auth api_key` before creating an instance. If that preflight fails, fix the authentication secrets first; changing VM shape, image, subnet, or availability domain will not fix a `401 NotAuthenticated` error.
 
 ---
 

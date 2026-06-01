@@ -10,11 +10,13 @@ env:
   IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
   SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
   AD_NAME: ${{ secrets.OCI_AD_NAME }}
-  OCI_CLI_REGION: "us-phoenix-1"
+  OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION || 'us-phoenix-1' }}
   OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
   OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
   OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
   OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+  SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+  SUPPRESS_LABEL_WARNING: "True"
 
 jobs:
   build-and-deploy:
@@ -34,22 +36,77 @@ jobs:
         id: create_vm
         # This forces the job to succeed so the cache will save.
         continue-on-error: true
+        shell: bash
         run: |
-          set -o pipefail
+          set -u
+
+          log_file="$(mktemp)"
+
+          run_and_log() {
+            echo "+ $*" | tee -a "$log_file"
+            "$@" 2>&1 | tee -a "$log_file"
+            return "${PIPESTATUS[0]}"
+          }
+
+          fail_with_log() {
+            echo "$1" | tee -a "$log_file"
+            echo "log_data<<EOF" >> "$GITHUB_OUTPUT"
+            cat "$log_file" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            exit 1
+          }
 
           pip install oci-cli
 
+          required_vars=(
+            COMPARTMENT_ID
+            IMAGE_ID
+            SUBNET_ID
+            AD_NAME
+            OCI_CLI_REGION
+            OCI_CLI_USER
+            OCI_CLI_TENANCY
+            OCI_CLI_FINGERPRINT
+            OCI_CLI_KEY_CONTENT
+            SSH_PUBLIC_KEY
+          )
+
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name}" ]]; then
+              fail_with_log "Missing required GitHub secret/env: ${var_name}"
+            fi
+          done
+
           mkdir -p ~/.oci
-          printf '%s' "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
+          printf '%s\n' "$OCI_CLI_KEY_CONTENT" | sed 's/\r$//' > ~/.oci/oci_api_key.pem
+          if ! grep -q '^OCI_API_KEY$' ~/.oci/oci_api_key.pem; then
+            echo "OCI_API_KEY" >> ~/.oci/oci_api_key.pem
+          fi
           chmod 600 ~/.oci/oci_api_key.pem
 
-          echo "[DEFAULT]" > ~/.oci/config
-          echo "user=${{ secrets.OCI_CLI_USER }}" >> ~/.oci/config
-          echo "tenancy=${{ secrets.OCI_CLI_TENANCY }}" >> ~/.oci/config
-          echo "fingerprint=${{ secrets.OCI_CLI_FINGERPRINT }}" >> ~/.oci/config
-          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
-          echo "region=${{ env.OCI_CLI_REGION }}" >> ~/.oci/config
-          echo "${{ secrets.SSH_PUBLIC_KEY }}" > /home/runner/my_ssh_key.pub
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${OCI_CLI_USER}
+          tenancy=${OCI_CLI_TENANCY}
+          fingerprint=${OCI_CLI_FINGERPRINT}
+          key_file=${HOME}/.oci/oci_api_key.pem
+          region=${OCI_CLI_REGION}
+          EOF
+          chmod 600 ~/.oci/config
+
+          printf '%s\n' "$SSH_PUBLIC_KEY" > /home/runner/my_ssh_key.pub
+
+          {
+            echo "OCI auth preflight:"
+            echo "- region: ${OCI_CLI_REGION}"
+            echo "- user OCID prefix: ${OCI_CLI_USER:0:18}..."
+            echo "- tenancy OCID prefix: ${OCI_CLI_TENANCY:0:21}..."
+            echo "- fingerprint: ${OCI_CLI_FINGERPRINT}"
+          } | tee -a "$log_file"
+
+          if ! run_and_log oci os ns get --auth api_key; then
+            fail_with_log "OCI authentication preflight failed. Check OCI_CLI_KEY_CONTENT, OCI_CLI_FINGERPRINT, OCI_CLI_USER, OCI_CLI_TENANCY, and OCI_CLI_REGION."
+          fi
 
           # Run the command, capture ALL output, and use '|| true' to prevent the script from exiting early.
           OCI_OUTPUT=$(oci compute instance launch \
@@ -64,9 +121,11 @@ jobs:
             --display-name "coolify-vm" \
             --boot-volume-size-in-gbs 200 2>&1 || true)
 
+          echo "$OCI_OUTPUT" | tee -a "$log_file"
+
           # Store the log as a GitHub step output
           echo "log_data<<EOF" >> $GITHUB_OUTPUT
-          echo "$OCI_OUTPUT" >> $GITHUB_OUTPUT
+          cat "$log_file" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           # Check the log content for an error string.
